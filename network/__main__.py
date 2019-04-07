@@ -4,6 +4,8 @@ import dbus.proxies
 import dbus.exceptions
 from dbus.mainloop.glib import DBusGMainLoop
 
+import collections
+
 from PyQt5.QtCore import QUrl, QObject, pyqtProperty, pyqtSignal, pyqtSlot
 from PyQt5.QtQml import qmlRegisterType, QQmlListProperty, QQmlApplicationEngine
 from PyQt5.QtWidgets import QApplication
@@ -36,8 +38,9 @@ class dbusProperties(dbus.proxies.Interface):
         self.Set(self.interface, name, (v,))
         return self._props.__setitem__(name, v)
 
-    def update(self, d):
-        self._props.update(d)
+    def update(self, interface, data, *a):
+        if interface == self.interface:
+            self._props.update(data)
 
 
 class dbusInterface(dbus.proxies.Interface):
@@ -89,12 +92,26 @@ class AccessPoint(QObject):
 
     def __init__(self,path,*a,**kw):
         super().__init__(*a,**kw)
+        self.path = path
         self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.AccessPoint')(path).di
-        self.di.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+        self.di.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
 
     @pyqtProperty(str, notify=Changed)
     def Ssid(self):
         return bytes(self.di['Ssid']).decode()
+
+    @pyqtProperty(str, notify=Changed)
+    def textIcon(self):
+        s = self.di['Strength']
+        if s > 80:
+            return "network-wireless-signal-excellent-symbolic"
+        if s > 60:
+            return "network-wireless-signal-good-symbolic"
+        if s > 40:
+            return "network-wireless-signal-ok-symbolic"
+        if s > 20:
+            return "network-wireless-signal-weak-symbolic"
+        return "network-wireless-signal-none-symbolic"
 
 class Device(QObject):
     Changed = pyqtSignal()
@@ -102,13 +119,24 @@ class Device(QObject):
     def __init__(self,path,*a,**kw):
         super().__init__(*a,**kw)
         self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device')(path).di
-        self.di.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+        self.di.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
         self._aps = []
         di_wireless = False
         if self.di['DeviceType'] == 2:
             self.di_wireless = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device.Wireless')(path).di
-            self.di_wireless.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+            self.di_wireless.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
+            self.di_wireless.connect_to_signal('AccessPointAdded', self.ap_added)
+            self.di_wireless.connect_to_signal('AccessPointRemoved', self.ap_removed)
+            self._aps = self.GetAccessPoints()
 
+
+    @pyqtSlot(result=list)
+    def GetAccessPoints(self):
+        if self.di_wireless:
+            r = self.di_wireless.GetAccessPoints()
+            return [AccessPoint(d,parent=self) for d in r]
+        else:
+            return []
 
     @pyqtProperty(str, notify=Changed)
     def Interface(self):
@@ -122,6 +150,16 @@ class Device(QObject):
     def AccessPoints(self):
         return QQmlListProperty(Device, self, self._aps)
 
+    def ap_added(self, path, *a, **kw):
+        self._aps.append(AccessPoint(path, parent=self))
+        self.Changed.emit()
+
+    def ap_removed(self, path, *a, **kw):
+        for i in range(len(self._aps)):
+            if self._aps[i].path == path:
+                del self._aps[i]
+                break
+        self.Changed.emit()
 
 
 class NetworkManager(QObject):
@@ -132,10 +170,10 @@ class NetworkManager(QObject):
         self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager')('/org/freedesktop/NetworkManager').di
         self._devices = self.GetDevices()
         self.Changed.emit()
-        self.di.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
-        self.di.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
-        self.di.connect_to_signal('DeviceAdded', lambda x: self.device_added)
-        self.di.connect_to_signal('DeviceRemoved', lambda x: self.device_removed)
+        # deprecated self.di.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+        self.di.props.connect_to_signal('PropertiesChanged', lambda *x: self.Changed.emit())
+        self.di.connect_to_signal('DeviceAdded', self.device_added)
+        self.di.connect_to_signal('DeviceRemoved', self.device_removed)
 
 
     @pyqtProperty(QQmlListProperty, notify=Changed)
@@ -147,9 +185,8 @@ class NetworkManager(QObject):
         r = self.di.GetDevices()
         return [Device(d,parent=self) for d in r]
 
-
-    def device_added(self, path, props, *a, **kw):
-        self._devices.append(Interface(path, parent=self, props=props))
+    def device_added(self, path, *a, **kw):
+        self._devices.append(Device(path, parent=self))
         self.Changed.emit()
 
     def device_removed(self, path, *a, **kw):

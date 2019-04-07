@@ -31,7 +31,7 @@ ApplicationWindow {
       text: modelData.Ssid
       width: parent.width
       display: AbstractButton.TextBesideIcon
-      icon.name: modelData.signalIcon
+      icon.name: modelData.textIcon
     }
   }
 
@@ -39,10 +39,10 @@ ApplicationWindow {
     id: interfaceDelegate
     ListView {
       Layout.fillWidth: true
-      Layout.fillHeight: true
+      // Layout.fillHeight: true
+      height: childrenRect.height
       header: ItemDelegate {
         display: AbstractButton.TextBesideIcon
-        icon.name: modelData.textIcon
         width: parent.width
         text: modelData.Interface
         onClicked: {
@@ -59,8 +59,10 @@ ApplicationWindow {
     spacing: 8
 
     ColumnLayout {
+      Layout.alignment: Qt.AlignTop | Qt.AlignLeft
       Layout.fillWidth: true
       Layout.fillHeight: true
+      Layout.preferredWidth: parent.width / 3
       Repeater {
         model: nm.Devices
         delegate: interfaceDelegate
@@ -72,7 +74,8 @@ ApplicationWindow {
       Layout.alignment: Qt.AlignTop | Qt.AlignLeft
       Layout.fillWidth: true
       Layout.fillHeight: true
-      Layout.preferredWidth: parent.width / 2
+      Layout.preferredWidth: parent.width / 3 * 2
+
       id: interfaceInfo
       property int at: 0
 
