@@ -25,6 +25,7 @@ class dbusProperties(dbus.proxies.Interface):
         self._props.update(props)
         self.interface = name
         super().__init__(service, 'org.freedesktop.DBus.Properties', *a, **kw)
+        self.connect_to_signal('PropertiesChanged', self.update)
 
     def __getitem__(self, name):
         if name not in self._props:
@@ -44,7 +45,6 @@ class dbusInterface(dbus.proxies.Interface):
     def __init__(self, service, name, *a, **kw):
         super().__init__(service, name, *a, **kw)
         self.props = dbusProperties(service, name)
-        self.connect_to_signal('PropertiesChanged', self.props.update)
 
     def __getitem__(self, name):
         return self.props[name]
@@ -84,145 +84,80 @@ def service_fabric(service):
 
     return interfce_fabric
 
-
-class BSS(QObject):
+class AccessPoint(QObject):
     Changed = pyqtSignal()
 
-    def __init__(self, path, parent=None, props={}, *a, **kw):
-        super().__init__(parent=parent, *a, **kw)
-        self.path = path
-        self.interface = service_fabric(
-            'fi.w1.wpa_supplicant1')(
-            'fi.w1.wpa_supplicant1.BSS')(
-            path)
-        self.interface.di.props.update(props)
-        self.interface.connect('PropertiesChanged', lambda x: self.Changed.emit())
+    def __init__(self,path,*a,**kw):
+        super().__init__(*a,**kw)
+        self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.AccessPoint')(path).di
+        self.di.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
 
     @pyqtProperty(str, notify=Changed)
-    def SSID(self):
-        return bytes(self.interface.di['SSID']).decode()
+    def Ssid(self):
+        return bytes(self.di['Ssid']).decode()
+
+class Device(QObject):
+    Changed = pyqtSignal()
+
+    def __init__(self,path,*a,**kw):
+        super().__init__(*a,**kw)
+        self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device')(path).di
+        self.di.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+        self._aps = []
+        di_wireless = False
+        if self.di['DeviceType'] == 2:
+            self.di_wireless = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device.Wireless')(path).di
+            self.di_wireless.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+
+
+    @pyqtProperty(str, notify=Changed)
+    def Interface(self):
+        return self.di['Interface']
 
     @pyqtProperty(int, notify=Changed)
-    def Signal(self):
-        return self.interface.di['Signal']
+    def DeviceType(self):
+        return self.di['DeviceType']
 
-    @pyqtProperty(str, notify=Changed)
-    def signalIcon(self):
-        s = self.interface.di['Signal']
-
-        if s > -40:
-            return "network-wireless-signal-excellent-symbolic"
-        if s > -50:
-            return "network-wireless-signal-good-symbolic"
-        if s > -60:
-            return "network-wireless-signal-ok-symbolic"
-        if s > -70:
-            return "network-wireless-signal-weak-symbolic"
-
-        return "network-wireless-signal-none-symbolic"
+    @pyqtProperty(QQmlListProperty, notify=Changed)
+    def AccessPoints(self):
+        return QQmlListProperty(Device, self, self._aps)
 
 
-class Interface(QObject):
+
+class NetworkManager(QObject):
     Changed = pyqtSignal()
-    BSSsChanged = pyqtSignal()
 
-    def __init__(self, path, parent=None, props={}, *a, **kw):
-        super().__init__(parent=parent, *a, **kw)
-        self.path = path
-        self.interface = service_fabric('fi.w1.wpa_supplicant1')(
-            'fi.w1.wpa_supplicant1.Interface')(path)
-        self.interface.di.props.update(props)
-        self.interface.connect('PropertiesChanged', lambda x: self.Changed.emit())
-        self.interface.connect('BSSAdded', self.add_bss)
-        self.interface.connect('BSSRemoved', self.rem_bss)
-        self._bsss = []
-        self.load()
+    def __init__(self, parent=None, *a, **kw):
+        super().__init__(parent=None, *a, **kw)
+        self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager')('/org/freedesktop/NetworkManager').di
+        self._devices = self.GetDevices()
+        self.Changed.emit()
+        self.di.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+        self.di.props.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
+        self.di.connect_to_signal('DeviceAdded', lambda x: self.device_added)
+        self.di.connect_to_signal('DeviceRemoved', lambda x: self.device_removed)
 
-    def load(self):
-        self._bsss = [BSS(path, parent=self) for path in self.interface.di['BSSs']]
-        self.BSSsChanged.emit()
 
-    def rem_bss(self, path, *a, **kw):
-        for i in range(len(self._bsss)):
-            if self._bsss[i].path == path:
-                del self._bsss[i]
+    @pyqtProperty(QQmlListProperty, notify=Changed)
+    def Devices(self):
+        return QQmlListProperty(Device, self, self._devices)
+
+    @pyqtSlot(result=list)
+    def GetDevices(self):
+        r = self.di.GetDevices()
+        return [Device(d,parent=self) for d in r]
+
+
+    def device_added(self, path, props, *a, **kw):
+        self._devices.append(Interface(path, parent=self, props=props))
+        self.Changed.emit()
+
+    def device_removed(self, path, *a, **kw):
+        for i in range(len(self._devices)):
+            if self._devices[i].path == path:
+                del self._devices[i]
                 break
-
-        self.BSSsChanged.emit()
-
-    def add_bss(self, path, props={}, *a, **kw):
-        self._bsss.append(BSS(path, parent=self, props=props))
-        self.BSSsChanged.emit()
-
-    @pyqtProperty(str, notify=Changed)
-    def Ifname(self):
-        return self.interface.di['Ifname']
-
-    @pyqtProperty(str, notify=Changed)
-    def textState(self):
-        s = [self.interface.di['State']]
-        if self.interface.di['Scanning']:
-            s.append('поиск сети')
-
-        return ",".join(s)
-
-    @pyqtProperty(str, notify=Changed)
-    def textIcon(self):
-        if self.interface.di['Scanning']:
-            return "network-wireless-acquiring-symbolic"
-        return ""
-
-    @pyqtProperty(bool, notify=Changed)
-    def Scanning(self):
-        return self.interface.di['Scanning']
-
-    @pyqtProperty(QQmlListProperty, notify=BSSsChanged)
-    def BSSs(self):
-        return QQmlListProperty(BSS, self, self._bsss)
-
-    @pyqtSlot()
-    def Scan(self):
-        try:
-            self.interface.di.get_dbus_method('FlushBSS')(15)
-            self.interface.di.get_dbus_method('Scan')({'Type': "active"})
-        except dbus.exceptions.DBusException:
-            pass
-
-
-class WiFi(QObject):
-    Changed = pyqtSignal()
-    InterfacesChanged = pyqtSignal()
-
-    def __init__(self, *a, **kw):
-        super().__init__(*a, **kw)
-        self._interfaces = []
-        self.wifi = service_fabric('fi.w1.wpa_supplicant1')(
-            'fi.w1.wpa_supplicant1')('/fi/w1/wpa_supplicant1')
-        self.load()
-        self.wifi.connect('InterfaceAdded', self.add_if)
-        self.wifi.connect('InterfaceRemoved', self.rem_if)
-
-    def add_if(self, path, props, *a, **kw):
-        self._interfaces.append(Interface(path, parent=self, props=props))
-        self.InterfacesChanged.emit()
-
-    def rem_if(self, path, *a, **kw):
-        for i in range(len(self._interfaces)):
-            if self._interfaces[i].path == path:
-                del self._interfaces[i]
-                break
-        self.InterfacesChanged.emit()
-
-    def load(self):
-        self._interfaces = [
-            Interface(path, parent=self) for path in self.wifi.di['Interfaces']
-            ]
-        self.InterfacesChanged.emit()
-
-    @pyqtProperty(QQmlListProperty, notify=InterfacesChanged)
-    def Interfaces(self):
-        return QQmlListProperty(Interface, self, self._interfaces)
-
+        self.Changed.emit()
 
 def main():
 
@@ -232,9 +167,9 @@ def main():
     app = QApplication(sys.argv)
     engine = QQmlApplicationEngine()
 
-    qmlRegisterType(WiFi, 'WiFi', 1, 0, 'WiFi')
-    qmlRegisterType(Interface, 'WiFi', 1, 0, 'Interface')
-    qmlRegisterType(BSS, 'WiFi', 1, 0, 'BSS')
+    qmlRegisterType(NetworkManager, 'NetworkManager', 1, 0, 'NetworkManager')
+    qmlRegisterType(Device, 'NetworkManager', 1, 0, 'Device')
+    qmlRegisterType(AccessPoint, 'NetworkManager', 1, 0, 'AccessPoint')
 
     engine.load(QUrl("qrc:/main.qml"))
     return app.exec_()

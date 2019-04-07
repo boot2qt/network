@@ -9,7 +9,7 @@ import QtQuick.Layouts 1.3
 //import QtQuick.VirtualKeyboard.Styles 2.2
 //import QtQuick.VirtualKeyboard.Settings 2.2
 
-import WiFi 1.0
+import NetworkManager 1.0
 
 ApplicationWindow {
 
@@ -21,14 +21,14 @@ ApplicationWindow {
     this.show()
   }
 
-  WiFi {
-    id: wifi
+  NetworkManager {
+    id: nm
   }
 
   Component {
-    id: bssDelegate
+    id: apDelegate
     ItemDelegate {
-      text: modelData.SSID
+      text: modelData.Ssid
       width: parent.width
       display: AbstractButton.TextBesideIcon
       icon.name: modelData.signalIcon
@@ -44,14 +44,13 @@ ApplicationWindow {
         display: AbstractButton.TextBesideIcon
         icon.name: modelData.textIcon
         width: parent.width
-        text: modelData.Ifname
+        text: modelData.Interface
         onClicked: {
           interfaceInfo.at = index;
-          modelData.Scan()
         }
       }
-      model: modelData.BSSs
-      delegate: bssDelegate
+      model: modelData.AccessPoints
+      delegate: apDelegate
     }
   }
 
@@ -63,7 +62,7 @@ ApplicationWindow {
       Layout.fillWidth: true
       Layout.fillHeight: true
       Repeater {
-        model: wifi.Interfaces
+        model: nm.Devices
         delegate: interfaceDelegate
       }
     }
@@ -76,12 +75,15 @@ ApplicationWindow {
       Layout.preferredWidth: parent.width / 2
       id: interfaceInfo
       property int at: 0
+
+      property var device: nm.Devices[at]
+
       Label {
-        text: "Интерфейс: " + wifi.Interfaces[parent.at].Ifname
+        text: "Интерфейс: " + parent.device.Interface
       }
 
       Label {
-        text: wifi.Interfaces[parent.at].textState
+        text: ""
       }
     }
   }
