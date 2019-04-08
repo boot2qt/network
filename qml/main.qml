@@ -5,9 +5,9 @@ import QtQuick.Controls.Material 2.4
 import QtQuick.Layouts 1.3
 
 
-//import QtQuick.VirtualKeyboard 2.2
-//import QtQuick.VirtualKeyboard.Styles 2.2
-//import QtQuick.VirtualKeyboard.Settings 2.2
+import QtQuick.VirtualKeyboard 2.1
+import QtQuick.VirtualKeyboard.Styles 2.1
+import QtQuick.VirtualKeyboard.Settings 2.1
 
 import NetworkManager 1.0
 
@@ -37,11 +37,8 @@ ApplicationWindow {
 
   Component {
     id: interfaceDelegate
-    ListView {
-      Layout.fillWidth: true
-      // Layout.fillHeight: true
-      height: childrenRect.height
-      header: ItemDelegate {
+    ColumnLayout {
+    ItemDelegate {
         display: AbstractButton.TextBesideIcon
         width: parent.width
         text: modelData.Interface
@@ -49,8 +46,19 @@ ApplicationWindow {
           interfaceInfo.at = index;
         }
       }
+
+    Repeater {
+      // clip: true
+      // Layout.fillWidth: true
+      // interactive: false
+      // Layout.fillHeight: true
+
+      // height: childrenRect.height
+
+      // header:
       model: modelData.AccessPoints
       delegate: apDelegate
+    }
     }
   }
 
@@ -86,7 +94,11 @@ ApplicationWindow {
       }
 
       Label {
-        text: ""
+        text: "Переданно/полученно: " + parent.device.TxBytes +"/"+ parent.device.RxBytes
+      }
+
+      Label {
+        text: parent.device.RxBytes
       }
     }
   }

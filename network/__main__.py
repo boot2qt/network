@@ -121,14 +121,22 @@ class Device(QObject):
         self.di = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device')(path).di
         self.di.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
         self._aps = []
-        di_wireless = False
+        self.di_wireless = False
         if self.di['DeviceType'] == 2:
             self.di_wireless = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device.Wireless')(path).di
-            self.di_wireless.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
+            #self.di_wireless.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
             self.di_wireless.connect_to_signal('AccessPointAdded', self.ap_added)
             self.di_wireless.connect_to_signal('AccessPointRemoved', self.ap_removed)
             self._aps = self.GetAccessPoints()
+        self.di_stats = service_fabric('org.freedesktop.NetworkManager')('org.freedesktop.NetworkManager.Device.Statistics')(path).di
 
+    @pyqtProperty(int, notify=Changed)
+    def TxBytes(self):
+        return self.di_stats['TxBytes']
+
+    @pyqtProperty(int, notify=Changed)
+    def RxBytes(self):
+        return self.di_stats['RxBytes']
 
     @pyqtSlot(result=list)
     def GetAccessPoints(self):
@@ -171,7 +179,7 @@ class NetworkManager(QObject):
         self._devices = self.GetDevices()
         self.Changed.emit()
         # deprecated self.di.connect_to_signal('PropertiesChanged', lambda x: self.Changed.emit())
-        self.di.props.connect_to_signal('PropertiesChanged', lambda *x: self.Changed.emit())
+        self.di.props.connect_to_signal('PropertiesChanged', lambda *a: self.Changed.emit())
         self.di.connect_to_signal('DeviceAdded', self.device_added)
         self.di.connect_to_signal('DeviceRemoved', self.device_removed)
 
